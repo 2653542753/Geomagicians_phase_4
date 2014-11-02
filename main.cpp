@@ -334,6 +334,7 @@ void readFile(){
 		}
 		else if (!cmd.compare("CDT")){
 			vector<int>::iterator it;
+			
 			for (it = addedPoints.begin(); it != addedPoints.end(); it++){
 				triangles.triangulateByPointCDT(*it);
 			}
@@ -476,7 +477,8 @@ void mouse(int button, int state, int x, int y)
 			std::cout << x << ", " << y << std::endl;
 		}
 		if(x >= minX && x <= maxX && y >= minY && y <= maxY){ 
-			triangles.addPointUpdate(LongInt::LongInt(x), LongInt::LongInt(y));
+			int pIdx = triangles.addPoint(LongInt::LongInt(x), LongInt::LongInt(y));
+			triangles.triangulateByPointCDT(pIdx);
 		}
 		cerr << "Overall Length in millisecond: " << endTime2-startTime2+endTime1-startTime1 << endl;
 	}

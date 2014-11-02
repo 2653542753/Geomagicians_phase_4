@@ -713,11 +713,7 @@ void Trist::triangulateByPointCDT(int pIdx){
 	}
 	vector<int> linkPoints = make3Tri(pIdx);
 	if (linkPoints.empty()){
-		//erase all triangles
-		//triangulate
 		cout << "Point not in triangulation" << endl;
-		records.clear();
-		triangulate();
 	}
 	else{
 		cout << "Point in triangulation" << endl;
@@ -766,11 +762,15 @@ void Trist::triangulateByEdgeCDT(int edgeIdx){
 	vector<int> triToRemove, upperPts, lowerPts;
 	int a = constrainedEdges.at(edgeIdx).vi_[0];
 	int b = constrainedEdges.at(edgeIdx).vi_[1];
-	int c, d, e;
+	int c(-1), d(-1), e(-1);
 	TriRecord triRec;
 
 	//we are finding t1
 	vector<int> adjTriangles = adjacentTriangles(a);
+	if (adjTriangles.empty()){
+		return;
+	}
+
 	vector<int>::iterator it;
 	for (it = adjTriangles.begin(); it != adjTriangles.end(); ++it){
 		triRec = *findTriangle(*it);
@@ -786,6 +786,10 @@ void Trist::triangulateByEdgeCDT(int edgeIdx){
 			c = triRec.vi_[0];
 			d = triRec.vi_[1];
 		}
+		//case where ab is already part of the triangulation: nothing to do
+		if (c == b || d == b){
+			return;
+		}
 		if (pointSet.intersects(a, b, c, d) == 1){
 			triToRemove.push_back(*it);
 			if (pointSet.turnLeft(a, b, c) == 1){
@@ -799,7 +803,6 @@ void Trist::triangulateByEdgeCDT(int edgeIdx){
 			break;
 		}
 	}
-
 	//we are finding the other triangles which are crossing ab
 	while (true){
 		adjTriangles.clear();
@@ -848,4 +851,30 @@ void Trist::triangulateByEdgeCDT(int edgeIdx){
 	for (it = triToRemove.begin(); it != triToRemove.end(); ++it){
 		delTri(*it << 3);
 	}
+
+	//re-triangulate with respect to edge ab
+	retriangulateCDT(a, b, lowerPts);
+	retriangulateCDT(a, b, upperPts);
+}
+
+void Trist::retriangulateCDT(int a, int b, vector<int> pIdx){
+	//find the point c such that no point of Pidx is in circumcircle abc
+	if (pIdx.size() == 0){
+		return;
+	}
+
+	int c = pIdx.front();
+	int pos = 0;
+	int posC = 0;
+	for (vector<int>::iterator itV = pIdx.begin(); itV != pIdx.end(); itV++){
+		if (pointSet.inCircle(a, b, c, *itV) == 1){
+			c = *itV;
+			posC = pos;
+		}
+		pos++;
+	}
+
+	makeTri(a, b, c, true);
+	retriangulateCDT(a, c, vector<int>(pIdx.begin(), pIdx.begin() + posC));
+	retriangulateCDT(c, b, vector<int>(pIdx.begin() + posC + 1, pIdx.end()));
 }

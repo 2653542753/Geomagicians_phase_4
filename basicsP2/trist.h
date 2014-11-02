@@ -147,6 +147,7 @@ class Trist {
 		int addConstrainedEdge(int pIdx1, int pIdx2);
 		void triangulateByPointCDT(int pIdx);
 		void triangulateByEdgeCDT(int edgeIdx);
+		void retriangulateCDT(int a, int b, vector<int> pIdx);
 		void flippingAlgCDT(int pIdx1, int pIdx2);
 		bool constrained(int pIdx1, int pIdx2);
 };
