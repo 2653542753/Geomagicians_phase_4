@@ -23,6 +23,7 @@ Trist::Trist()
 int Trist::addPoint(LongInt x, LongInt y){
 	int idx = this->pointSet.addPoint(x, y);
 	lastPointsAddedIdx.insert(idx);
+        addedPoints.push_back(idx);
 	return idx;
 }
 
@@ -623,10 +624,10 @@ bool Trist::triangulateByPointStep(TriangulateState *state) {
 	return state->isDone();
 }
 
-void Trist::hideBigTriangle(TriangulateState *state){
+void Trist::hideBigTriangle(){
 	vector<int> triToDel;
 	for (int idx = 0; idx < 3; idx++) {
-		triToDel = adjacentTriangles(state->bigTriangle.at(idx));
+		triToDel = adjacentTriangles(bigTriangle.at(idx));
 		for (vector<int>::iterator it = triToDel.begin(); it != triToDel.end(); ++it) {
 			setVisibility(*it, false);
 		}
@@ -685,10 +686,10 @@ std::vector<MyPoint> Trist::getPoints(){
 	return pointSet.getPoints();
 }
 
-void Trist::showBigTriangles(TriangulateState *state){
+void Trist::showBigTriangles(){
 	vector<int> triToDel;
 	for (int idx = 0; idx < 3; idx++) {
-		triToDel = adjacentTriangles(state->bigTriangle.at(idx));
+		triToDel = adjacentTriangles(bigTriangle.at(idx));
 		for (vector<int>::iterator it = triToDel.begin(); it != triToDel.end(); ++it) {
 			setVisibility(*it, true);
 		}
@@ -701,6 +702,7 @@ int Trist::addConstrainedEdge(int pIdx1, int pIdx2){
 	e.vi_[1] = pIdx2;
 	if (pIdx1 < noPt() && pIdx2 < noPt()){
 		constrainedEdges.push_back(e);
+		addedEdges.push_back(constrainedEdges.size() - 1);
 		return constrainedEdges.size() - 1;
 	}
 	return -1;
@@ -855,6 +857,18 @@ void Trist::triangulateByEdgeCDT(int edgeIdx){
 	//re-triangulate with respect to edge ab
 	retriangulateCDT(a, b, lowerPts);
 	retriangulateCDT(a, b, upperPts);
+}
+
+void Trist::triangulateCDT(){
+        vector<int>::iterator it;
+        for (it = addedPoints.begin(); it != addedPoints.end(); it++){
+                triangulateByPointCDT(*it);
+        }
+        for (it = addedEdges.begin(); it != addedEdges.end(); it++){
+                triangulateByEdgeCDT(*it);
+        }
+        addedPoints.clear();
+        addedEdges.clear();
 }
 
 void Trist::retriangulateCDT(int a, int b, vector<int> pIdx){

@@ -18,8 +18,8 @@
 
 using namespace std;
 
-double offset_x = 200;
-double offset_y = 200;
+double offset_x = 500;
+double offset_y = 300;
 int minX, minY, maxX, maxY;
 float k = 1;
 float tx = 0.0, ty=0.0;
@@ -35,8 +35,6 @@ struct command {
 	}
 };
 
-vector<int> addedPoints;
-vector<int> addedEdges;
 
 queue<command> cmdbuffer;
 Trist triangles;
@@ -54,6 +52,8 @@ bool DEBUG = true;
 int startTime1, startTime2, endTime1, endTime2;
 SYSTEMTIME st_1;
 SYSTEMTIME st_2;
+
+TriangulateCDT *triCDTstate;
 
 void drawAPoint(double x, double y, bool isNew = false)
 {
@@ -78,17 +78,23 @@ void drawAPoint(double x, double y, float r, float g, float b)
 	glPointSize(1);
 }
 
-void drawALine(double x1, double y1, double x2, double y2, bool isNew = false)
+void drawALine(double x1, double y1, double x2, double y2, bool isNew = false, bool constrained = false)
 {
 	glPointSize(1);
+	if (constrained){
+		glLineWidth(3);
+	}
 	glBegin(GL_LINE_LOOP);
 	if (isNew)
-		glColor3f(0.7, 0.7, 0);
+		glColor3f(1, 1, 0);
+	else if (constrained)
+		glColor3f(1, 1, 0);
 	else
 		glColor3f(0, 0, 1);
 	glVertex2d(x1, y1);
 	glVertex2d(x2, y2);
 	glEnd();
+	glLineWidth(1);
 	glPointSize(1);
 }
 
@@ -118,23 +124,22 @@ void runcmd(command cmd)
 	if (DEBUG)
 		cout << cmd.name << " " << cmd.arg1.printOut() << " " << cmd.arg2.printOut() << endl;
 
-	if (!cmd.name.compare("CD")){
-		if (pointBuffer.size() > 0){
-			// TIMER COUNTER INITIALISE FOR THIS "CD" STEP
-			GetLocalTime(&st_1);
-			int startTime1 = (((st_1.wHour*60+st_1.wMinute)*60)+st_1.wSecond)*1000+st_1.wMilliseconds;
-			intriangulate = true;
-			atPoint = 1;
-			triState = triangles.triangulateByPoint(pointBuffer.at(0));
-		}
+	if (!cmd.name.compare("CDT")){
+		cout << "blah" << endl;
+		triCDTstate = new TriangulateCDT(&triangles);
+		triCDTstate->next();
+		intriangulate = true;
 	}
 	else if (!cmd.name.compare("IP")) {
 		if (cmd.arg1 >= minX && cmd.arg1 <= maxX && cmd.arg2 >= minY && cmd.arg2 <= maxY){
-			pointBuffer.push_back(triangles.addPoint(cmd.arg1, cmd.arg2));
+			triangles.addPoint(cmd.arg1, cmd.arg2);
 		}
 		else if (DEBUG) {
 			cout << "Point does not fit in window : " << cmd.arg1.printOut() << "," << cmd.arg2.printOut() << std::endl;
 		}
+	}
+	else if (!cmd.name.compare("CE")) {
+		triangles.addConstrainedEdge(cmd.arg1.doubleValue(), cmd.arg2.doubleValue());
 	}
 	cerr << "Overall Length in millisecond: " << endTime2-startTime2+endTime1-startTime1 << endl;
 }
@@ -146,6 +151,31 @@ void updatescene(void)
 	{
 		jumpnext = false;
 		if (intriangulate){
+
+			// TIMER START FOR THIS STEP
+			GetLocalTime(&st_2);
+			int startTime2 = (((st_2.wHour * 60 + st_2.wMinute) * 60) + st_2.wSecond) * 1000 + st_2.wMilliseconds;
+
+			if (triCDTstate->isDone()){
+				intriangulate = false;
+				delete(triCDTstate);
+				triangles.hideBigTriangle();
+				triangles.clearActive();
+				GetLocalTime(&st_2);
+				// "CD" STEP DONE! ADD THIS TIMER TO GET FINAL TIME FOR TRIANGULATION
+				int endTime1 = (((st_1.wHour * 60 + st_1.wMinute) * 60) + st_1.wSecond) * 1000 + st_1.wMilliseconds;
+			}
+			else{
+				triCDTstate->next();
+			}
+
+			// TIMER STOP FOR THIS STEP, ADD TO TIMER COUNTER
+			GetLocalTime(&st_2);
+			int endTime2 = (((st_2.wHour * 60 + st_2.wMinute) * 60) + st_2.wSecond) * 1000 + st_2.wMilliseconds;
+
+			glutPostRedisplay();
+		}
+		else if (intriangulate){
 			// TIMER START FOR THIS STEP
 			GetLocalTime(&st_2);
 			int startTime2 = (((st_2.wHour*60+st_2.wMinute)*60)+st_2.wSecond)*1000+st_2.wMilliseconds;
@@ -158,7 +188,7 @@ void updatescene(void)
 					triState = triangles.triangulateByPoint(pointBuffer.at(atPoint));
 				}
 				else{
-					triangles.hideBigTriangle(triState);
+					triangles.hideBigTriangle();
 					triangles.clearActive();
 					delete triState;
 					intriangulate = false;
@@ -213,6 +243,7 @@ void display(void)
 	bool isNew = true;
 
 	glTranslated(offset_x,offset_y,0);
+
 	vector<TriRecord> record = triangles.getTriangles();
 	for(vector<TriRecord>::iterator it = record.begin(); it != record.end(); ++it){
 		if(it->getVisibility()){
@@ -229,12 +260,31 @@ void display(void)
 						  px2.doubleValue(), py2.doubleValue(),
 						  px3.doubleValue(), py3.doubleValue(), isNew);
 			drawALine(px1.doubleValue(), py1.doubleValue(),
-					  px2.doubleValue(), py2.doubleValue(), triangles.isActiveEdge(p1Idx, p2Idx));
+				px2.doubleValue(), py2.doubleValue(),
+				triangles.isActiveEdge(p1Idx, p2Idx), 
+				triangles.constrained(p1Idx, p2Idx));
 			drawALine(px2.doubleValue(), py2.doubleValue(),
-					  px3.doubleValue(), py3.doubleValue(), triangles.isActiveEdge(p2Idx, p3Idx));
+				px3.doubleValue(), py3.doubleValue(),
+				triangles.isActiveEdge(p2Idx, p3Idx),
+				triangles.constrained(p2Idx, p3Idx));
 			drawALine(px3.doubleValue(), py3.doubleValue(),
-					  px1.doubleValue(), py1.doubleValue(), triangles.isActiveEdge(p3Idx, p1Idx));
+				px1.doubleValue(), py1.doubleValue(),
+				triangles.isActiveEdge(p3Idx, p1Idx),
+				triangles.constrained(p3Idx, p1Idx));
 		}
+	}
+
+	vector<Edge> constrainedEdges = triangles.constrainedEdges;
+	for (vector<Edge>::iterator it = constrainedEdges.begin(); it != constrainedEdges.end(); ++it){
+		p1Idx = it->vi_[0];
+		p2Idx = it->vi_[1];
+		triangles.getPoint(p1Idx, px1, py1);
+		triangles.getPoint(p2Idx, px2, py2);
+
+		drawALine(px1.doubleValue(), py1.doubleValue(),
+			px2.doubleValue(), py2.doubleValue(),
+			triangles.isActiveEdge(p1Idx, p2Idx),
+			triangles.constrained(p1Idx, p2Idx));
 	}
 
 	vector<MyPoint> points = triangles.getPoints();
@@ -306,12 +356,12 @@ void readFile(){
 			LongInt p1 = LongInt::LongInt(numberStr.c_str());
 			linestream >> numberStr;
 			LongInt p2 = LongInt::LongInt(numberStr.c_str());
-			/*command newcmd;
+			command newcmd;
 			newcmd.name = "IP";
 			newcmd.arg1 = p1;
 			newcmd.arg2 = p2;
-			cmdbuffer.push(newcmd);*/
-			addedPoints.push_back(triangles.addPoint(p1, p2));
+			cmdbuffer.push(newcmd);
+			//triangles.addPoint(p1, p2);
 		}
 		else if(!cmd.compare("DY")){
 			linestream >> numberStr;
@@ -330,20 +380,18 @@ void readFile(){
 			int pIdx1 = atof(numberStr.c_str()) - 1;
 			linestream >> numberStr;
 			int pIdx2 = atof(numberStr.c_str()) - 1;
-			addedEdges.push_back(triangles.addConstrainedEdge(pIdx1, pIdx2));
+			command newcmd;
+			newcmd.name = "CE";
+			newcmd.arg1 = pIdx1;
+			newcmd.arg2 = pIdx2;
+			cmdbuffer.push(newcmd);
+			//triangles.addConstrainedEdge(pIdx1, pIdx2);
 		}
 		else if (!cmd.compare("CDT")){
-			vector<int>::iterator it;
-			
-			for (it = addedPoints.begin(); it != addedPoints.end(); it++){
-				triangles.triangulateByPointCDT(*it);
-			}
-			for (it = addedEdges.begin(); it != addedEdges.end(); it++){
-				triangles.triangulateByEdgeCDT(*it);
-			}
-			
-			addedPoints.clear();
-			addedEdges.clear();
+			command newcmd;
+			newcmd.name = "CDT";
+			cmdbuffer.push(newcmd);
+			//triangles.triangulateCDT();
 		}
 		else{
 			cerr << "Exception: Wrong input command" << endl;
@@ -470,8 +518,8 @@ void mouse(int button, int state, int x, int y)
 	};
 	if((button == MOUSE_RIGHT_BUTTON)&&(state == GLUT_UP))
 	{
-		x = x + minX;
-		y = y + minY; 
+		x = x - offset_x;
+		y = y - offset_y; 
 		if (DEBUG) {
 			std::cout << "clicked" << std::endl;
 			std::cout << x << ", " << y << std::endl;
@@ -506,7 +554,6 @@ int main(int argc, char **argv)
 	minY = -(GLUT_WINDOW_HEIGHT + offset_y/2);
 	maxX = 1000 + minX;
 	maxY = 700 + minY;
-	
 
 	glutInitWindowPosition(50, 50);
 	glutCreateWindow ("CS5237 Phase II");

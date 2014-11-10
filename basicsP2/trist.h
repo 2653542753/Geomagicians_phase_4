@@ -3,8 +3,11 @@
 
 #include "pointSetArray.h"
 #include <vector>
+#include <iostream>
 #include <set>
 #include "..\basics\li.h"
+
+using namespace std;
 
 /*
 
@@ -42,6 +45,9 @@ public:
 	TriangulateState() { this->step = -1; };
 };
 
+
+
+
 class Trist;
 
 class TriRecord {
@@ -50,7 +56,8 @@ protected:
 		OrTri fnext_[6];
 		int triIdx;
 		bool visible;
-	friend Trist;
+		friend Trist;
+		friend class TriangulateByEdgeCDT;
 
 public:
 	bool getVisibility(){ return visible; }
@@ -59,8 +66,9 @@ public:
 };
 
 class Edge{
-protected:
+public:
 	int vi_[2];
+protected:
 	friend Trist;
 };
 
@@ -71,8 +79,7 @@ class Trist {
 		int maxTriIdx;
 		TriRecord* findTriangle(int tIdx);
 		vector<int> bigTriangle;
-		vector<Edge> constrainedEdges;
-
+ 
 		set<int> pointsOnTri;
 		set<int> lastPointsAddedIdx;
 		set<int> lastTrianglesAddedIdx;
@@ -84,6 +91,10 @@ class Trist {
 		int en_[6];
 
 	public:
+		vector<int> addedPoints;
+		vector<int> addedEdges;
+		vector<Edge> constrainedEdges;
+          
 		Trist();
 		int addPoint(LongInt x, LongInt y);
 		int getPoint (int pIndex, LongInt& x1,LongInt& y1); // put the x,y values into x1,y1, and return 1 if the point pIndex exists
@@ -124,8 +135,8 @@ class Trist {
 		void triangulate(); //we assume there is no triangle
 		TriangulateState *triangulateByPoint(int pIdx);
 		bool triangulateByPointStep(TriangulateState *state);
-		void hideBigTriangle(TriangulateState *state);
-		void showBigTriangles(TriangulateState *state);
+		void hideBigTriangle();
+		void showBigTriangles();
 		void addPointUpdate(LongInt x, LongInt y);
 		std::vector<int> getTriIdx();
 		void setVisibility(int triIdx, bool visibility);
@@ -150,6 +161,552 @@ class Trist {
 		void retriangulateCDT(int a, int b, vector<int> pIdx);
 		void flippingAlgCDT(int pIdx1, int pIdx2);
 		bool constrained(int pIdx1, int pIdx2);
+		void triangulateCDT();
+
+		friend class TriangulateCDT;
+		friend class FlippingAlgCDT;
+		friend class TriangulateByPointCDT;
+		friend class TriangulateByEdgeCDT;
+		friend class ReTriangulate;
 };
+
+class ReTriangulate
+{
+protected:
+	int step;
+	bool done;
+	int a, b, c;
+	int posC;
+	vector<int> pIdx;
+	vector<int> leftVec, rightVec;
+	Trist *triangle;
+
+	ReTriangulate *rt;
+public:
+	ReTriangulate(Trist *tri, int p1, int p2, vector<int> pVec){
+		a = p1;
+		b = p2;
+		pIdx = pVec;
+		rt = NULL;
+		done = false;
+		triangle = tri;
+		step = 0;
+	}
+
+	void next()
+	{
+		if (done)
+			return;
+
+		int pos;
+
+		switch (step){
+		case 0:
+			//find the point c such that no point of Pidx is in circumcircle abc
+			if (pIdx.size() == 0){
+				done = true;
+				return;
+			}
+
+			c = pIdx.front();
+			pos = 0;
+			posC = 0;
+			for (vector<int>::iterator itV = pIdx.begin(); itV != pIdx.end(); itV++){
+				if (triangle->pointSet.inCircle(a, b, c, *itV) == 1){
+					c = *itV;
+					posC = pos;
+				}
+				pos++;
+			}
+
+			triangle->makeTri(a, b, c, true);
+
+			leftVec = vector<int>(pIdx.begin(), pIdx.begin() + posC);
+			rightVec = vector<int>(pIdx.begin() + posC + 1, pIdx.end());
+
+			if (leftVec.size() == 0 && rightVec.size() == 0){
+				done = true;
+				return;
+			}
+
+			step = 1;
+			return;
+		case 1:
+			if (leftVec.size() != 0){
+				if (rt == NULL){
+					rt = new ReTriangulate(triangle, a, c, leftVec);
+				}
+				rt->next();
+				if (rt->isDone()){
+					delete(rt);
+					rt = NULL;
+					step = 2;
+					if (rightVec.size() == 0){
+						done = true;
+					}
+				}
+				return;
+			}
+			step = 2;
+		case 2:
+			if (rightVec.size() != 0){
+				if (rt == NULL){
+					rt = new ReTriangulate(triangle, c, b, rightVec);
+				}
+				rt->next();
+				if (rt->isDone()){
+					delete(rt);
+					rt = NULL;
+					done = true;
+				}
+				return;
+			}
+		}
+
+		done = true;
+	}
+
+	bool isDone()
+	{
+		return done;
+	}
+};
+
+class TriangulateByEdgeCDT
+{
+protected:
+	int step;
+	bool done;
+	int edgeIdx;
+	int a, b;
+	Trist *triangle;
+	vector<int> linkPoints;
+	vector<int> triToRemove, upperPts, lowerPts;
+
+	ReTriangulate *rt;
+public:
+	TriangulateByEdgeCDT(Trist *tri, int eIdx){
+		done = false;
+		triangle = tri;
+		edgeIdx = eIdx;
+		step = 0;
+		rt = NULL;
+	}
+
+	void next(){
+		if (done)
+			return;
+
+		vector<int> adjTriangles;
+		vector<int>::iterator it;
+		TriRecord triRec;
+		int c(-1), d(-1), e(-1);
+
+		switch (step){
+		case 0:
+			a = triangle->constrainedEdges.at(edgeIdx).vi_[0];
+			b = triangle->constrainedEdges.at(edgeIdx).vi_[1];
+			//we are finding t1
+			adjTriangles = triangle->adjacentTriangles(a);
+			if (adjTriangles.empty()){
+				done = true;
+				return;
+			}
+
+			for (it = adjTriangles.begin(); it != adjTriangles.end(); ++it){
+				triRec = *triangle->findTriangle(*it);
+				if (a == triRec.vi_[0]){
+					c = triRec.vi_[1];
+					d = triRec.vi_[2];
+				}
+				else if (a == triRec.vi_[1]){
+					c = triRec.vi_[0];
+					d = triRec.vi_[2];
+				}
+				else{
+					c = triRec.vi_[0];
+					d = triRec.vi_[1];
+				}
+				//case where ab is already part of the triangulation: nothing to do
+				if (c == b || d == b){
+					done = true;
+					return;
+				}
+				if (triangle->pointSet.intersects(a, b, c, d) == 1){
+					triToRemove.push_back(*it);
+					if (triangle->pointSet.turnLeft(a, b, c) == 1){
+						upperPts.push_back(c);
+						lowerPts.push_back(d);
+					}
+					else{
+						upperPts.push_back(d);
+						lowerPts.push_back(c);
+					}
+					break;
+				}
+			}
+			//we are finding the other triangles which are crossing ab
+			while (true){
+				adjTriangles.clear();
+				adjTriangles = triangle->adjacentTriangles(c, d);
+				int tri;
+
+				if (adjTriangles.at(0) != triToRemove.back()){
+					tri = adjTriangles.at(0);
+				}
+				else{
+					tri = adjTriangles.at(1);
+				}
+				triToRemove.push_back(tri);
+
+				triRec = *triangle->findTriangle(tri);
+				if ((triRec.vi_[0] == c && triRec.vi_[1] == d) || (triRec.vi_[0] == d && triRec.vi_[1] == c)){
+					e = triRec.vi_[2];
+				}
+				else if ((triRec.vi_[1] == c && triRec.vi_[2] == d) || (triRec.vi_[1] == d && triRec.vi_[2] == c)){
+					e = triRec.vi_[0];
+				}
+				else{
+					e = triRec.vi_[1];
+				}
+
+				if (e == b){
+					break;
+				}
+
+				if (triangle->pointSet.intersects(a, b, e, c) == 1){
+					d = e;
+				}
+				else {
+					c = e;
+				}
+
+				if (triangle->pointSet.turnLeft(a, b, e) == 1){
+					upperPts.push_back(e);
+				}
+				else{
+					lowerPts.push_back(e);
+				}
+			}
+
+			step = 1;
+			return;
+		case 1:
+			if (triToRemove.size() > 0){
+				//we remove the triangles
+				for (it = triToRemove.begin(); it != triToRemove.end(); ++it){
+					triangle->delTri(*it << 3);
+				}
+				step = 2;
+				return;
+			}
+			else{
+				done = true;
+				return;
+			}
+		case 2:
+			//re-triangulate with respect to edge ab
+			if (lowerPts.size() != 0){
+				if (rt == NULL){
+					rt = new ReTriangulate(triangle, a, b, lowerPts);
+				}
+				rt->next();
+				if (rt->isDone()){
+					delete(rt);
+					rt = NULL;
+					step = 3;
+					if (upperPts.size() == 0){
+						done = true;
+					}
+				}
+				return;
+			}
+			step = 3;
+		case 3:
+			if (upperPts.size() != 0){
+				if (rt == NULL){
+					rt = new ReTriangulate(triangle, a, b, upperPts);
+				}
+				rt->next();
+				if (rt->isDone()){
+					delete(rt);
+					rt = NULL;
+					done = true;
+				}
+				return;
+			}
+		}
+
+		done = true;
+	}
+
+	bool isDone()
+	{
+		return done;
+	}
+};
+
+class FlippingAlgCDT
+{
+protected:
+	bool done;
+	int step;
+	int pIdx1, pIdx2;
+	vector<int> points;
+	Trist *triangle;
+
+	FlippingAlgCDT *facdt;
+public:
+	FlippingAlgCDT(Trist *tri, int p1, int p2){
+		step = 0;
+		done = false;
+		triangle = tri;
+		facdt = NULL;
+		pIdx1 = p1;
+		pIdx2 = p2;
+	}
+
+	void next()
+	{
+		if (done)
+			return;
+
+		switch (step){
+		case 0:
+			triangle->setActiveEdge(pIdx1, pIdx2);
+			if (!triangle->constrained(pIdx1, pIdx2) && !triangle->isLocallyDelaunay(pIdx1, pIdx2)){
+				points = triangle->flipEdge(pIdx1, pIdx2);
+				triangle->setActiveEdge(points.at(0), points.at(1));
+				step = 1;
+				return;
+			}
+			else{
+				done = true;
+				return;
+			}
+		case 1:
+			if (facdt == NULL){
+				facdt = new FlippingAlgCDT(triangle, pIdx1, points.at(0));
+			}
+			facdt->next();
+			if (facdt->isDone()){
+				delete(facdt);
+				facdt = NULL;
+				step++;
+				return;
+			}
+			return;
+		case 2:
+			if (facdt == NULL){
+				facdt = new FlippingAlgCDT(triangle, pIdx1, points.at(1));
+			}
+			facdt->next();
+			if (facdt->isDone()){
+				delete(facdt);
+				facdt = NULL;
+				step++;
+				return;
+			}
+			return;
+		case 3:
+			if (facdt == NULL){
+				facdt = new FlippingAlgCDT(triangle, pIdx2, points.at(0));
+			}
+			facdt->next();
+			if (facdt->isDone()){
+				delete(facdt);
+				facdt = NULL;
+				step++;
+				return;
+			}
+			return;
+		case 4:
+			if (facdt == NULL){
+				facdt = new FlippingAlgCDT(triangle, pIdx2, points.at(1));
+			}
+			facdt->next();
+			if (facdt->isDone()){
+				delete(facdt);
+				facdt = NULL;
+				done = true;
+			}
+			return;
+		}
+
+		done = true;
+	}
+
+	bool isDone()
+	{
+		return done;
+	}
+};
+
+class TriangulateByPointCDT
+{
+protected:
+	int step;
+	bool done;
+	int pIdx;
+	Trist *triangle;
+	vector<int> linkPoints;
+
+	FlippingAlgCDT *facdt;
+public:
+	TriangulateByPointCDT(Trist *tri, int pI){
+		done = false;
+		triangle = tri;
+		pIdx = pI;
+		step = 0;
+		facdt = NULL;
+	}
+	void next()
+	{
+		if (done)
+			return;
+
+		switch (step){
+		case 0:
+			if (triangle->bigTriangle.empty()){
+				triangle->bigTriangle = triangle->pointSet.constructCircumTri();
+				triangle->makeTri(triangle->bigTriangle.at(0), triangle->bigTriangle.at(1), triangle->bigTriangle.at(2));
+				step = 1;
+				return;
+			}
+		case 1:
+			linkPoints = triangle->make3Tri(pIdx);
+			triangle->activePoint = pIdx;
+			if (linkPoints.empty()){
+				cout << "Point not in triangulation" << endl;
+				done = true;
+				return;
+			}
+			step = 2;
+			return;
+		case 2:
+			cout << "Point in triangulation" << endl;
+			triangle->setActiveEdge(linkPoints.at(0), linkPoints.at(1));
+			step++;
+			return;
+		case 3:
+			if (facdt == NULL){
+				facdt = new FlippingAlgCDT(triangle, linkPoints.at(0), linkPoints.at(1));
+			}
+			facdt->next();
+			if (facdt->isDone()){
+				delete(facdt);
+				facdt = NULL;
+				step++;
+				return;
+			}
+			return;
+		case 4:
+			triangle->setActiveEdge(linkPoints.at(0), linkPoints.at(2));
+			step++;
+			return;
+		case 5:
+			if (facdt == NULL){
+				facdt = new FlippingAlgCDT(triangle, linkPoints.at(0), linkPoints.at(2));
+			}
+			facdt->next();
+			if (facdt->isDone()){
+				delete(facdt);
+				facdt = NULL;
+				step++;
+				return;
+			}
+			return;
+		case 6:
+			triangle->setActiveEdge(linkPoints.at(1), linkPoints.at(2));
+			step++;
+			return;
+		case 7:
+			if (facdt == NULL){
+				facdt = new FlippingAlgCDT(triangle, linkPoints.at(1), linkPoints.at(2));
+			}
+			facdt->next();
+			if (facdt->isDone()){
+				delete(facdt);
+				facdt = NULL;
+				step++;
+				return;
+			}
+			return;
+		case 8:
+			triangle->clearActiveEdge();
+		}
+		done = true;
+	}
+	bool isDone()
+	{
+		return done;
+	}
+};
+
+
+class TriangulateCDT
+{
+protected:
+	bool done;
+	Trist *triangle;
+	vector<int>::iterator points_it;
+	vector<int>::iterator edges_it;
+
+	TriangulateByPointCDT *tpcdt;
+	TriangulateByEdgeCDT *tecdt;
+public:
+	TriangulateCDT(Trist *tri){
+		done = false;
+		triangle = tri;
+		tpcdt = NULL;
+		tecdt = NULL;
+		points_it = triangle->addedPoints.begin();
+		edges_it = triangle->addedEdges.begin();
+	}
+	void next()
+	{
+		if (done)
+			return;
+
+		if (points_it != triangle->addedPoints.end()){
+			if (tpcdt == NULL){
+				tpcdt = new TriangulateByPointCDT(triangle, *points_it);
+			}
+			tpcdt->next();
+			if (tpcdt->isDone()){
+				delete(tpcdt);
+				tpcdt = NULL;
+				points_it++;
+				if (points_it == triangle->addedPoints.end() && edges_it == triangle->addedEdges.end())
+					done = true;
+			}
+			return;
+		}
+
+		triangle->clearActive();
+		if (edges_it != triangle->addedEdges.end()){
+			if (tecdt == NULL){
+				tecdt = new TriangulateByEdgeCDT(triangle, *edges_it);
+			}
+			tecdt->next();
+			if (tecdt->isDone()){
+				delete(tecdt);
+				tecdt = NULL;
+				edges_it++;
+			}
+			else
+				return;
+		}
+
+		triangle->addedPoints.clear();
+		triangle->addedEdges.clear();
+		done = true;
+	}
+	bool isDone()
+	{
+		return done;
+	}
+};
+
 
 #endif
