@@ -229,6 +229,7 @@ void updatescene(void)
 
 void display(void)
 {
+	glClearColor(0.0, 0.0, 0.0, 0.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glPushMatrix();
@@ -259,18 +260,6 @@ void display(void)
 			drawATriangle(px1.doubleValue(), py1.doubleValue(),
 						  px2.doubleValue(), py2.doubleValue(),
 						  px3.doubleValue(), py3.doubleValue(), isNew);
-			drawALine(px1.doubleValue(), py1.doubleValue(),
-				px2.doubleValue(), py2.doubleValue(),
-				triangles.isActiveEdge(p1Idx, p2Idx), 
-				triangles.constrained(p1Idx, p2Idx));
-			drawALine(px2.doubleValue(), py2.doubleValue(),
-				px3.doubleValue(), py3.doubleValue(),
-				triangles.isActiveEdge(p2Idx, p3Idx),
-				triangles.constrained(p2Idx, p3Idx));
-			drawALine(px3.doubleValue(), py3.doubleValue(),
-				px1.doubleValue(), py1.doubleValue(),
-				triangles.isActiveEdge(p3Idx, p1Idx),
-				triangles.constrained(p3Idx, p1Idx));
 		}
 	}
 
@@ -285,6 +274,29 @@ void display(void)
 			px2.doubleValue(), py2.doubleValue(),
 			triangles.isActiveEdge(p1Idx, p2Idx),
 			triangles.constrained(p1Idx, p2Idx));
+	}
+
+	record = triangles.getTriangles();
+	for (vector<TriRecord>::iterator it = record.begin(); it != record.end(); ++it){
+		if (it->getVisibility()){
+			int *vert = it->getVertices();
+			p1Idx = vert[0];
+			p2Idx = vert[1];
+			p3Idx = vert[2];
+			triangles.getPoint(p1Idx, px1, py1);
+			triangles.getPoint(p2Idx, px2, py2);
+			triangles.getPoint(p3Idx, px3, py3);
+
+			drawALine(px1.doubleValue(), py1.doubleValue(),
+				px2.doubleValue(), py2.doubleValue(),
+				triangles.isActiveEdge(p1Idx, p2Idx));
+			drawALine(px2.doubleValue(), py2.doubleValue(),
+				px3.doubleValue(), py3.doubleValue(),
+				triangles.isActiveEdge(p2Idx, p3Idx));
+			drawALine(px3.doubleValue(), py3.doubleValue(),
+				px1.doubleValue(), py1.doubleValue(),
+				triangles.isActiveEdge(p3Idx, p1Idx));
+		}
 	}
 
 	vector<MyPoint> points = triangles.getPoints();
@@ -308,15 +320,12 @@ void display(void)
 
 void reshape (int w, int h)
 {
-
 	glViewport (0, 0, (GLsizei) w, (GLsizei) h);
 	glMatrixMode (GL_PROJECTION);
 	glLoadIdentity();
 	gluOrtho2D(0,w,h,0);  
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
-
-
 }
 
 void init(void)
